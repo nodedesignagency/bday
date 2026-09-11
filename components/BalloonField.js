@@ -9,32 +9,44 @@ import Balloon from './Balloon';
 const TICK_MS = 16;
 
 /**
- * One burst of balloons. Mount it with a fresh `key` to run the burst again.
+ * The burst in flight, parked outside React on purpose.
  *
- * The burst is a plain number counting 0 to 1 on a timer, and every balloon is
- * drawn from it. No Animated, no interpolation, no animation driver: those are
- * the pieces that kept stalling the rise partway up on iOS, and a timer plus a
- * re-render is the one path that is certain to work. Eighteen small views is
- * well within what that can carry.
+ * Everything about the rise was correct — the balloons are only ever visible
+ * once it is under way — and it still never got off the bottom of the screen,
+ * because the tree kept being torn down and rebuilt underneath it and each
+ * rebuild started the burst again from nothing. Holding the start time out
+ * here means a remount picks the burst up where it actually is rather than
+ * dropping it back to the ground.
+ */
+let inFlight = null;
+
+/**
+ * One burst of balloons. Bump `runId` to send up a fresh one.
  *
  * Deliberately no `overflow: hidden`: balloons begin their rise below the
  * bottom of the screen, and clipping a layer on iOS can detach the children
  * sitting outside it — which takes the whole burst with it. The screen edge
  * does the clipping for free.
  */
-export default function BalloonField() {
+export default function BalloonField({ runId }) {
   const { width, height } = useWindowDimensions();
   const [progress, setProgress] = useState(0);
 
-  // Rolled once, at mount. A replay gets fresh balloons because the whole field
-  // remounts on a new key.
-  const [balloons] = useState(() => createBalloons(width, height));
+  const [burst] = useState(() => {
+    const now = Date.now();
+
+    // Same burst, still going: carry on with it rather than start over.
+    if (inFlight && inFlight.runId === runId && now - inFlight.startedAt < BURST_MS) {
+      return inFlight;
+    }
+
+    inFlight = { runId, startedAt: now, balloons: createBalloons(width, height) };
+    return inFlight;
+  });
 
   useEffect(() => {
-    const startedAt = Date.now();
-
     const ticker = setInterval(() => {
-      const elapsed = (Date.now() - startedAt) / BURST_MS;
+      const elapsed = (Date.now() - burst.startedAt) / BURST_MS;
 
       if (elapsed >= 1) {
         setProgress(1);
@@ -46,12 +58,12 @@ export default function BalloonField() {
     }, TICK_MS);
 
     return () => clearInterval(ticker);
-  }, []);
+  }, [burst]);
 
   return (
     // Taps belong to the screen underneath, so a tap anywhere replays the burst.
     <View style={styles.field} pointerEvents="none">
-      {balloons.map((balloon) => (
+      {burst.balloons.map((balloon) => (
         <Balloon key={balloon.id} {...balloon} progress={progress} />
       ))}
     </View>

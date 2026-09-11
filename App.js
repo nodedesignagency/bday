@@ -44,7 +44,7 @@ export default function App() {
         resizeMode="cover"
         onLoadEnd={() => setOnScreen(true)}
       />
-      {burst !== null && <BalloonField key={burst} />}
+      {burst !== null && <BalloonField key={burst} runId={burst} />}
       {/* The background screenshot has its own status bar in it; hide the real one. */}
       <StatusBar hidden />
     </Pressable>
