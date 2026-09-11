@@ -19,6 +19,10 @@ const FAST_RISE_MS = 3900;
 // The burst is spread over this window so they don't all leave the ground together.
 const STAGGER_MS = 2100;
 
+// The whole burst runs off one clock, so it has to be long enough for the last
+// balloon to leave: the longest wait plus the slowest rise, with room to spare.
+export const BURST_MS = STAGGER_MS + SLOW_RISE_MS * 1.1 + 200;
+
 export const COLORS = [
   '#FF4D6D', // raspberry
   '#FFB627', // amber

@@ -1,20 +1,28 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
-// More steps = smoother sway. Animated interpolates linearly between them.
-const SWAY_STEPS = 16;
+import { BURST_MS } from '../constants/balloons';
+
+// Sample points along one balloon's flight. The rise easing, the sway and the
+// tilt are all baked into these, so the shared clock can tick straight through.
+const STEPS = 24;
+
+const RISE_EASING = Easing.bezier(0.38, 0, 0.62, 1);
+
+const MAX_TILT_DEG = 8;
 
 // Tilt of each string segment, top to bottom, to curl the string.
 const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
-
-const MAX_TILT_DEG = 8;
 
 // A balloon is taller than it is wide. The body is laid out as a circle and
 // stretched, because a scaled circle is a true ellipse on every platform,
 // where a tall box with a big corner radius is only ever a pill.
 const STRETCH = 1.18;
 
+const lerp = (from, to, t) => from + (to - from) * t;
+
 export default function Balloon({
+  clock,
   color,
   knotColor,
   size,
@@ -24,11 +32,8 @@ export default function Balloon({
   sway,
   swayCycles,
   phase,
-  opacity,
   travel,
 }) {
-  const progress = useRef(new Animated.Value(0)).current;
-
   // Stretching happens around the middle, so the body spills this far past its
   // layout box at the top and at the bottom.
   const overhang = (size * STRETCH - size) / 2;
@@ -36,51 +41,36 @@ export default function Balloon({
   const stringHeight = size * 1.45;
   const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
-  // Every value this depends on is rolled once by the field and stays put, so
-  // this runs at mount and is never restarted mid-rise.
-  useEffect(() => {
-    const rise = Animated.timing(progress, {
-      toValue: 1,
-      delay,
-      duration,
-      // Slow release, floaty cruise, no hard stop at the top.
-      easing: Easing.bezier(0.38, 0, 0.62, 1),
-      // Driven from JS on purpose. The native driver hands the animation to a
-      // view the platform owns, and a rise that stalls halfway up is the price
-      // when that goes wrong. Eighteen balloons is nothing to drive by hand.
-      useNativeDriver: false,
-    });
+  const flight = useMemo(() => {
+    const startAt = delay / BURST_MS;
+    const endAt = Math.min((delay + duration) / BURST_MS, 1);
 
-    rise.start();
-    return () => rise.stop();
-  }, [delay, duration, progress]);
+    const from = travel + overhang;
+    const to = -totalHeight;
 
-  // A sine wave sampled into interpolation points: drift left, right, left...
-  const { inputRange, swayRange, tiltRange } = useMemo(() => {
-    const input = [];
+    const clockRange = [];
+    const rise = [];
     const drift = [];
+    const tilt = [];
 
-    for (let step = 0; step <= SWAY_STEPS; step += 1) {
-      const t = step / SWAY_STEPS;
-      input.push(t);
-      drift.push(Math.sin((phase + t * swayCycles) * Math.PI * 2) * sway);
+    for (let step = 0; step <= STEPS; step += 1) {
+      const t = step / STEPS;
+      const offset = Math.sin((phase + t * swayCycles) * Math.PI * 2) * sway;
+
+      clockRange.push(lerp(startAt, endAt, t));
+      rise.push(lerp(from, to, RISE_EASING(t)));
+      drift.push(offset);
+      // Lean into the drift, so the balloon swings rather than slides.
+      tilt.push(`${(offset / sway) * MAX_TILT_DEG}deg`);
     }
 
-    return {
-      inputRange: input,
-      swayRange: drift,
-      // Lean into the drift, so the balloon swings rather than slides.
-      tiltRange: drift.map((offset) => `${(offset / sway) * MAX_TILT_DEG}deg`),
-    };
-  }, [phase, sway, swayCycles]);
+    return { clockRange, rise, drift, tilt };
+  }, [delay, duration, overhang, phase, sway, swayCycles, totalHeight, travel]);
 
-  const translateY = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [travel + overhang, -totalHeight],
-  });
-
-  const translateX = progress.interpolate({ inputRange, outputRange: swayRange });
-  const rotate = progress.interpolate({ inputRange, outputRange: tiltRange });
+  // Clamped at both ends: parked below the screen until its moment, gone above
+  // it afterwards.
+  const interpolation = (outputRange) =>
+    clock.interpolate({ inputRange: flight.clockRange, outputRange, extrapolate: 'clamp' });
 
   return (
     <Animated.View
@@ -89,10 +79,11 @@ export default function Balloon({
         {
           left: x,
           width: size,
-          // Fixed rather than animated: a balloon that fails to move is still a
-          // balloon you can see, instead of an invisible bug.
-          opacity,
-          transform: [{ translateY }, { translateX }, { rotate }],
+          transform: [
+            { translateY: interpolation(flight.rise) },
+            { translateX: interpolation(flight.drift) },
+            { rotate: interpolation(flight.tilt) },
+          ],
         },
       ]}
     >
