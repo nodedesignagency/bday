@@ -1,7 +1,7 @@
 /**
  * The screen behind the balloons.
  *
- * Drop your own screenshot in at `assets/bg.png` (same name, same folder) and
- * that is the only change needed — no code edits, no restart beyond a reload.
+ * Swap `assets/bg.jpg` for a different screenshot and that's the whole change —
+ * or point this at another file if you'd rather keep its name.
  */
-export default require('../assets/bg.png');
+export default require('../assets/bg.jpg');

@@ -34,6 +34,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   background: {
-    flex: 1,
+    // Explicit dimensions rather than flex: the image's own intrinsic size
+    // otherwise wins and the screenshot renders zoomed instead of fitted.
+    width: '100%',
+    height: '100%',
   },
 });

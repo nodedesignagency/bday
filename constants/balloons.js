@@ -6,11 +6,11 @@
 export const LAUNCH_DELAY_MS = 1000;
 
 // Balloons in a single burst.
-export const BALLOON_COUNT = 26;
+export const BALLOON_COUNT = 18;
 
 // Balloon width in points. Small balloons read as "far away", big ones as "close".
 const MIN_SIZE = 34;
-const MAX_SIZE = 88;
+const MAX_SIZE = 78;
 
 // How long a balloon takes to cross the screen. Far ones drift, near ones hustle.
 const SLOW_RISE_MS = 6400;

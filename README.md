@@ -16,13 +16,16 @@ Scan the QR code with **Expo Go** (Android: the in-app scanner, iOS: the Camera 
 
 ## Use your own screenshot
 
-Replace `assets/bg.png` with your screenshot — same filename, same folder — and
-reload the app. That's the whole step; no code to edit.
+`assets/bg.jpg` is the screenshot on screen. Replace it — same filename, same
+folder — and reload the app. That's the whole step; no code to edit. To keep a
+different filename, point `constants/background.js` at it instead.
 
-If you'd rather keep another filename, point `constants/background.js` at it.
+The image is drawn with `resizeMode="cover"`, so a screenshot taken on the phone
+you're testing on lines up edge to edge.
 
-The image is drawn with `resizeMode="cover"`, so a real phone screenshot from the
-device you're testing on will line up edge to edge.
+**Send the screenshot to yourself uncompressed.** Chat apps downscale images by
+default, and an upscaled screenshot has visibly soft text — which is the one
+thing that gives the joke away.
 
 ## Recording the video
 
