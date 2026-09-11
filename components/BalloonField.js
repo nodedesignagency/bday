@@ -10,6 +10,11 @@ const RESPAWN_MS = 1400;
 // A finger is not a pixel, and a balloon is a moving target.
 const TAP_SLOP = 16;
 
+// What counts as a tap rather than a drag or a stray touch: short, and it has
+// to end roughly where it started, on the balloon it started on.
+const TAP_MS = 600;
+const TAP_DRIFT = 14;
+
 /**
  * Held outside React so a rebuilt tree gets the same balloons back rather than
  * a fresh set in new columns and colours.
@@ -117,11 +122,13 @@ export default function BalloonField() {
     [balloons, rises],
   );
 
-  const handleTap = useCallback(
+  // Which balloon is under a point, if any. Worked out from the same figures
+  // that place them, so what you can hit is what you can see.
+  const balloonUnder = useCallback(
     (touchX, touchY) => {
       const at = Date.now();
 
-      const hit = balloons
+      return balloons
         .map((balloon, index) => ({ balloon, index, place: balloonAt(balloon, phaseOf(index, at), height) }))
         .filter(({ balloon }) => !popped[balloon.id])
         .filter(
@@ -133,6 +140,13 @@ export default function BalloonField() {
         )
         // Overlapping balloons: the nearest one is the one you meant.
         .sort((a, b) => b.balloon.size - a.balloon.size)[0];
+    },
+    [balloons, height, phaseOf, popped],
+  );
+
+  const handleTap = useCallback(
+    (touchX, touchY) => {
+      const hit = balloonUnder(touchX, touchY);
 
       if (!hit) {
         return;
@@ -141,11 +155,6 @@ export default function BalloonField() {
       setPopped((current) => ({ ...current, [hit.balloon.id]: true }));
 
       setTimeout(() => {
-        // Send the replacement up from the bottom rather than dropping it back
-        // in wherever its rise had got to.
-        const rise = rises[hit.index];
-        rise.value.stopAnimation(() => startRise(rise, hit.balloon.cycleMs));
-
         setPopped((current) => {
           const next = { ...current };
           delete next[hit.balloon.id];
@@ -153,16 +162,57 @@ export default function BalloonField() {
         });
       }, RESPAWN_MS);
     },
-    [balloons, height, phaseOf, popped, rises],
+    [balloonUnder],
   );
+
+  // A tap in progress: which balloon it started on, where, and when.
+  const pending = useRef(null);
 
   return (
     <View
       style={styles.field}
-      onStartShouldSetResponder={() => true}
-      onResponderRelease={(event) =>
-        handleTap(event.nativeEvent.locationX, event.nativeEvent.locationY)
-      }
+      // Only take the touch if it actually began on a balloon. Anywhere else
+      // and this never hears about it, so it cannot pop anything.
+      onStartShouldSetResponder={(event) => {
+        const { locationX, locationY } = event.nativeEvent;
+        const hit = balloonUnder(locationX, locationY);
+
+        if (!hit) {
+          pending.current = null;
+          return false;
+        }
+
+        pending.current = { id: hit.balloon.id, x: locationX, y: locationY, at: Date.now() };
+        return true;
+      }}
+      onResponderRelease={(event) => {
+        const start = pending.current;
+        pending.current = null;
+
+        if (!start) {
+          return;
+        }
+
+        const { locationX, locationY } = event.nativeEvent;
+        const held = Date.now() - start.at;
+        const moved = Math.hypot(locationX - start.x, locationY - start.y);
+
+        // A real tap: brief, barely moved, and still on the balloon it began
+        // on. Anything else is a drag, a stray touch, or a different balloon
+        // drifting under the finger — and none of those should pop one.
+        if (held > TAP_MS || moved > TAP_DRIFT) {
+          return;
+        }
+
+        const hit = balloonUnder(locationX, locationY);
+
+        if (hit && hit.balloon.id === start.id) {
+          handleTap(locationX, locationY);
+        }
+      }}
+      onResponderTerminate={() => {
+        pending.current = null;
+      }}
     >
       {balloons.map((balloon, index) => (
         <Balloon

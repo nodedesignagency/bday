@@ -30,7 +30,7 @@ thing that gives the joke away.
 ## Recording the video
 
 - The balloons start **1 second** after the app opens and keep floating up for as long as it stays open.
-- **Tap a balloon to pop it.** A fresh one drifts up from the bottom a moment later, so you can keep popping.
+- **Tap a balloon to pop it.** It reappears a moment later, so you can keep popping.
 - The device status bar is hidden, so the one baked into your screenshot is the only one on screen.
 
 ## Tweaking the balloons
