@@ -1,35 +1,42 @@
-import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { createBalloons } from '../constants/balloons';
 import Balloon from './Balloon';
 
+// How long a popped balloon stays gone before a new one drifts up in its place.
+const RESPAWN_MS = 1600;
+
+const TICK_MS = 16;
+
 /**
- * Held outside React so a rebuilt tree gets the same balloons back. Their
- * positions come from the clock either way, so this is only to stop them
- * jumping to new columns and colours if the app rebuilds underneath them.
+ * Held outside React so a rebuilt tree gets the same balloons back rather than
+ * a fresh set in new columns and colours.
  */
 let cached = null;
-
-// ~60 ticks a second, only to keep the clock fresh. Nothing accumulates here,
-// so a late tick costs a frame of smoothness and nothing else.
-const TICK_MS = 16;
 
 /**
  * The balloons, drifting up the screen for as long as the app is open.
  *
- * Tick just republishes the current time; every balloon works out where it
- * belongs from that. There is no progress to lose, which is the whole point —
- * a rebuilt tree picks straight back up instead of dropping to the floor.
+ * The tick winds each balloon's phase straight to its Animated value, which
+ * pushes the new position at the view without re-rendering anything. That is
+ * the whole trick: a React render per frame is cheap in a browser and costs a
+ * fresh view tree on a phone, which is what kept the rise crawling.
  *
- * Deliberately no `overflow: hidden`: balloons begin their rise below the
- * bottom of the screen, and clipping a layer on iOS can detach the children
- * sitting outside it — which takes the whole lot with it. The screen edge does
- * the clipping for free.
+ * Phase is worked out from the time of day, so nothing accumulates and there
+ * is no progress for a rebuild to lose.
+ *
+ * Deliberately no `overflow: hidden`: balloons begin below the bottom of the
+ * screen, and clipping a layer on iOS can detach the children sitting outside
+ * it. The screen edge does the clipping for free.
  */
 export default function BalloonField() {
-  const { width, height } = useWindowDimensions();
-  const [now, setNow] = useState(() => Date.now());
+  const { width, height: windowHeight } = useWindowDimensions();
+
+  // Measured rather than assumed, so the balloons always leave from the real
+  // bottom edge of what is on screen.
+  const [travel, setTravel] = useState(windowHeight);
+
   const [balloons] = useState(() => {
     if (!cached) {
       cached = createBalloons(width);
@@ -38,30 +45,73 @@ export default function BalloonField() {
     return cached;
   });
 
-  // id -> which crossing it was popped on, and when.
-  const [popped, setPopped] = useState({});
+  // One value per balloon: 0 at the bottom edge, 1 above the top.
+  const phases = useRef(balloons.map(() => new Animated.Value(0))).current;
+
+  // Popped balloons, by id. Changes only when one is tapped.
+  const [popped, setPopped] = useState(() => new Set());
 
   useEffect(() => {
-    const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(ticker);
-  }, []);
+    const ticker = setInterval(() => {
+      const now = Date.now();
 
-  const pop = useCallback((id, trip) => {
-    setPopped((current) => ({ ...current, [id]: { trip, at: Date.now() } }));
-  }, []);
+      for (let index = 0; index < balloons.length; index += 1) {
+        const { cycleMs, offset } = balloons[index];
+        const cycles = now / cycleMs + offset;
+        phases[index].setValue(cycles - Math.floor(cycles));
+      }
+    }, TICK_MS);
+
+    return () => clearInterval(ticker);
+  }, [balloons, phases]);
+
+  const pop = useCallback(
+    (id) => {
+      setPopped((current) => {
+        if (current.has(id)) {
+          return current;
+        }
+
+        const next = new Set(current);
+        next.add(id);
+        return next;
+      });
+
+      setTimeout(() => {
+        const balloon = balloons.find((candidate) => candidate.id === id);
+
+        // Send the replacement up from the bottom rather than dropping it back
+        // in wherever its old cycle had wandered to.
+        if (balloon) {
+          balloon.offset = -Date.now() / balloon.cycleMs;
+        }
+
+        setPopped((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }, RESPAWN_MS);
+    },
+    [balloons],
+  );
 
   return (
-    <View style={styles.field}>
-      {balloons.map((balloon) => (
-        <Balloon
-          key={balloon.id}
-          balloon={balloon}
-          now={now}
-          travel={height}
-          popped={popped[balloon.id]}
-          onPop={pop}
-        />
-      ))}
+    <View
+      style={styles.field}
+      onLayout={(event) => setTravel(event.nativeEvent.layout.height)}
+    >
+      {balloons.map((balloon, index) =>
+        popped.has(balloon.id) ? null : (
+          <Balloon
+            key={balloon.id}
+            balloon={balloon}
+            phase={phases[index]}
+            travel={travel}
+            onPop={pop}
+          />
+        ),
+      )}
     </View>
   );
 }

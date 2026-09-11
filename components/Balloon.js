@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, View } from 'react-native';
-
-// How long the pop takes to play out, in ms.
-export const POP_MS = 220;
+import { useMemo } from 'react';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 
 const MAX_TILT_DEG = 8;
+
+// Sample points for the sway, so one phase value drives drift and tilt too.
+const SWAY_STEPS = 16;
 
 // Tilt of each string segment, top to bottom, to curl the string.
 const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
@@ -13,18 +14,17 @@ const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
 // where a tall box with a big corner radius is only ever a pill.
 const STRETCH = 1.18;
 
-const lerp = (from, to, t) => from + (to - from) * t;
-
 /**
  * A single balloon.
  *
- * Where it sits is worked out from the clock on the wall and nothing else — no
- * stored progress, no start time, no animation to be interrupted. Whatever the
- * app does around it, a balloon is always exactly where the time of day says
- * it should be, so it can drift but it can never stall.
+ * `phase` is an Animated.Value the field keeps wound to the current time: 0 at
+ * the bottom of the screen, 1 above the top. Reading it through interpolation
+ * means the balloon's position is pushed straight to the view, so drifting up
+ * the screen costs no React renders at all — which is what was throttling the
+ * rise on a real phone while looking perfectly fine in a browser.
  */
-export default function Balloon({ now, travel, popped, onPop, balloon }) {
-  const { id, size, color, knotColor, x, cycleMs, offset, sway, swayCycles, swayPhase } = balloon;
+export default function Balloon({ phase, travel, balloon, onPop }) {
+  const { id, size, color, knotColor, x, sway, swayCycles, swayPhase } = balloon;
 
   // Stretching happens around the middle, so the body spills this far past its
   // layout box at the top and at the bottom.
@@ -33,96 +33,96 @@ export default function Balloon({ now, travel, popped, onPop, balloon }) {
   const stringHeight = size * 1.45;
   const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
-  // Which crossing this is, and how far through it we are.
-  const cycles = now / cycleMs + offset;
-  const trip = Math.floor(cycles);
-  const phase = cycles - trip;
+  const { steps, drift, tilt } = useMemo(() => {
+    const at = [];
+    const sideways = [];
+    const lean = [];
 
-  let scale = 1;
-  let opacity = 1;
+    for (let step = 0; step <= SWAY_STEPS; step += 1) {
+      const t = step / SWAY_STEPS;
+      const offset = Math.sin((swayPhase + t * swayCycles) * Math.PI * 2) * sway;
 
-  if (popped && popped.trip === trip) {
-    const burst = (now - popped.at) / POP_MS;
-
-    // Popped and finished bursting: gone until it comes round again.
-    if (burst >= 1) {
-      return null;
+      at.push(t);
+      sideways.push(offset);
+      // Lean into the drift, so the balloon swings rather than slides.
+      lean.push(`${(offset / sway) * MAX_TILT_DEG}deg`);
     }
 
-    scale = 1 + burst * 0.7;
-    opacity = 1 - burst;
-  }
+    return { steps: at, drift: sideways, tilt: lean };
+  }, [sway, swayCycles, swayPhase]);
 
-  const translateY = lerp(travel + overhang, -totalHeight, phase);
-  const translateX = Math.sin((swayPhase + phase * swayCycles) * Math.PI * 2) * sway;
-  // Lean into the drift, so the balloon swings rather than slides.
-  const tilt = (translateX / sway) * MAX_TILT_DEG;
+  const translateY = phase.interpolate({
+    inputRange: [0, 1],
+    outputRange: [travel + overhang, -totalHeight],
+  });
+
+  const translateX = phase.interpolate({ inputRange: steps, outputRange: drift });
+  const rotate = phase.interpolate({ inputRange: steps, outputRange: tilt });
 
   return (
-    <Pressable
-      onPress={() => onPop(id, trip)}
+    <Animated.View
       style={[
         styles.balloon,
-        {
-          left: x,
-          width: size,
-          opacity,
-          transform: [{ translateY }, { translateX }, { rotate: `${tilt}deg` }],
-        },
+        { left: x, width: size, transform: [{ translateY }, { translateX }, { rotate }] },
       ]}
     >
-      <View
-        style={[
-          styles.body,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: color,
-            transform: [{ scaleY: STRETCH }, { scale }],
-          },
-        ]}
-      >
-        {/* An oversized dark disc cutting in from the right: its curved edge
-            shades the balloon like a round object, where a straight-edged
-            panel would just look like a stripe. */}
+      {/* Only the balloon itself is tappable. The string trailing below it is
+          not, so a tap low on the screen cannot take out a balloon well above
+          the finger. */}
+      <Pressable onPress={() => onPop(id)} style={{ width: size, height: size }}>
         <View
           style={[
-            styles.shade,
+            styles.body,
             {
-              width: size * 1.25,
-              height: size * 1.25,
-              right: -size * 0.62,
-              top: -size * 0.1,
-              borderRadius: size * 0.625,
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: color,
+              transform: [{ scaleY: STRETCH }],
             },
           ]}
-        />
-        <View
-          style={[
-            styles.highlight,
-            {
-              width: size * 0.22,
-              height: size * 0.32,
-              left: size * 0.15,
-              top: size * 0.15,
-              borderRadius: size / 4,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.glint,
-            {
-              width: size * 0.09,
-              height: size * 0.09,
-              left: size * 0.36,
-              top: size * 0.12,
-              borderRadius: size * 0.045,
-            },
-          ]}
-        />
-      </View>
+        >
+          {/* An oversized dark disc cutting in from the right: its curved edge
+              shades the balloon like a round object, where a straight-edged
+              panel would just look like a stripe. */}
+          <View
+            style={[
+              styles.shade,
+              {
+                width: size * 1.25,
+                height: size * 1.25,
+                right: -size * 0.62,
+                top: -size * 0.1,
+                borderRadius: size * 0.625,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.highlight,
+              {
+                width: size * 0.22,
+                height: size * 0.32,
+                left: size * 0.15,
+                top: size * 0.15,
+                borderRadius: size / 4,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.glint,
+              {
+                width: size * 0.09,
+                height: size * 0.09,
+                left: size * 0.36,
+                top: size * 0.12,
+                borderRadius: size * 0.045,
+              },
+            ]}
+          />
+        </View>
+      </Pressable>
 
       <View
         style={[
@@ -148,7 +148,7 @@ export default function Balloon({ now, travel, popped, onPop, balloon }) {
           />
         ))}
       </View>
-    </Pressable>
+    </Animated.View>
   );
 }
 
@@ -182,6 +182,8 @@ const styles = StyleSheet.create({
   },
   string: {
     alignItems: 'center',
+    // The string is not a hit target; only the balloon above it is.
+    pointerEvents: 'none',
     // Fade the whole string at once. Per-segment alpha would double up at the
     // overlaps and bead the string with bright knots.
     opacity: 0.34,
