@@ -1,6 +1,7 @@
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { BURST_MS } from '../constants/balloons';
+// How long the pop takes to play out, in ms.
+export const POP_MS = 220;
 
 const MAX_TILT_DEG = 8;
 
@@ -13,29 +14,18 @@ const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
 const STRETCH = 1.18;
 
 const lerp = (from, to, t) => from + (to - from) * t;
-const clamp01 = (value) => (value < 0 ? 0 : value > 1 ? 1 : value);
-
-// Slow release, floaty cruise, no hard stop at the top.
-const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
 /**
- * A single balloon, drawn from the burst's progress. Plain arithmetic and a
- * plain View: whatever the platform does with animation drivers, it can still
- * put a box where the numbers say.
+ * A single balloon.
+ *
+ * Where it sits is worked out from the clock on the wall and nothing else — no
+ * stored progress, no start time, no animation to be interrupted. Whatever the
+ * app does around it, a balloon is always exactly where the time of day says
+ * it should be, so it can drift but it can never stall.
  */
-export default function Balloon({
-  progress,
-  color,
-  knotColor,
-  size,
-  x,
-  delay,
-  duration,
-  sway,
-  swayCycles,
-  phase,
-  travel,
-}) {
+export default function Balloon({ now, travel, popped, onPop, balloon }) {
+  const { id, size, color, knotColor, x, cycleMs, offset, sway, swayCycles, swayPhase } = balloon;
+
   // Stretching happens around the middle, so the body spills this far past its
   // layout box at the top and at the bottom.
   const overhang = (size * STRETCH - size) / 2;
@@ -43,24 +33,40 @@ export default function Balloon({
   const stringHeight = size * 1.45;
   const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
-  // This balloon's own slice of the burst: parked below the screen until its
-  // moment, gone above it afterwards.
-  const startAt = delay / BURST_MS;
-  const endAt = (delay + duration) / BURST_MS;
-  const t = clamp01((progress - startAt) / (endAt - startAt));
+  // Which crossing this is, and how far through it we are.
+  const cycles = now / cycleMs + offset;
+  const trip = Math.floor(cycles);
+  const phase = cycles - trip;
 
-  const translateY = lerp(travel + overhang, -totalHeight, ease(t));
-  const translateX = Math.sin((phase + t * swayCycles) * Math.PI * 2) * sway;
+  let scale = 1;
+  let opacity = 1;
+
+  if (popped && popped.trip === trip) {
+    const burst = (now - popped.at) / POP_MS;
+
+    // Popped and finished bursting: gone until it comes round again.
+    if (burst >= 1) {
+      return null;
+    }
+
+    scale = 1 + burst * 0.7;
+    opacity = 1 - burst;
+  }
+
+  const translateY = lerp(travel + overhang, -totalHeight, phase);
+  const translateX = Math.sin((swayPhase + phase * swayCycles) * Math.PI * 2) * sway;
   // Lean into the drift, so the balloon swings rather than slides.
   const tilt = (translateX / sway) * MAX_TILT_DEG;
 
   return (
-    <View
+    <Pressable
+      onPress={() => onPop(id, trip)}
       style={[
         styles.balloon,
         {
           left: x,
           width: size,
+          opacity,
           transform: [{ translateY }, { translateX }, { rotate: `${tilt}deg` }],
         },
       ]}
@@ -73,7 +79,7 @@ export default function Balloon({
             height: size,
             borderRadius: size / 2,
             backgroundColor: color,
-            transform: [{ scaleY: STRETCH }],
+            transform: [{ scaleY: STRETCH }, { scale }],
           },
         ]}
       >
@@ -142,7 +148,7 @@ export default function Balloon({
           />
         ))}
       </View>
-    </View>
+    </Pressable>
   );
 }
 

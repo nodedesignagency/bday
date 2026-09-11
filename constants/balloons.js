@@ -2,26 +2,20 @@
  * Everything you might want to tweak about the birthday balloons lives here.
  */
 
-// How long after the app opens before the balloons let go.
+// How long after the app opens before the balloons start.
 export const LAUNCH_DELAY_MS = 1000;
 
-// Balloons in a single burst.
+// How many balloons are in the air.
 export const BALLOON_COUNT = 18;
 
 // Balloon width in points. Small balloons read as "far away", big ones as "close".
 const MIN_SIZE = 34;
 const MAX_SIZE = 78;
 
-// How long a balloon takes to cross the screen. Far ones drift, near ones hustle.
-const SLOW_RISE_MS = 6400;
-const FAST_RISE_MS = 3900;
-
-// The burst is spread over this window so they don't all leave the ground together.
-const STAGGER_MS = 2100;
-
-// The whole burst runs off one clock, so it has to be long enough for the last
-// balloon to leave: the longest wait plus the slowest rise, with room to spare.
-export const BURST_MS = STAGGER_MS + SLOW_RISE_MS * 1.1 + 200;
+// How long one balloon takes to cross the screen, bottom to top. Far ones
+// drift, near ones hustle.
+const SLOW_CYCLE_MS = 9000;
+const FAST_CYCLE_MS = 5200;
 
 export const COLORS = [
   '#FF4D6D', // raspberry
@@ -41,21 +35,23 @@ const hexToRgb = (hex) => [
 ];
 
 // Blend a hex color toward black, for the knot under each balloon.
-const blend = (hex, toward, amount) =>
+const shade = (hex, amount) =>
   `rgb(${hexToRgb(hex)
-    .map((channel) => Math.round(channel + (toward - channel) * amount))
+    .map((channel) => Math.round(channel * (1 - amount)))
     .join(', ')})`;
-
-const shade = (hex, amount) => blend(hex, 0, amount);
 
 const random = (min, max) => min + Math.random() * (max - min);
 const lerp = (from, to, t) => from + (to - from) * t;
 
 /**
- * Builds one burst. Balloons are spread across columns so the screen fills
- * evenly instead of clumping wherever Math.random happens to land.
+ * Builds the set of balloons. Each one rises on its own endless cycle, and its
+ * `offset` is how far through that cycle it happens to be — which is what
+ * spreads them up the screen instead of launching them all together.
+ *
+ * Balloons are spread across columns so the screen fills evenly instead of
+ * clumping wherever Math.random happens to land.
  */
-export function createBalloons(width, height) {
+export function createBalloons(width) {
   const columnWidth = width / BALLOON_COUNT;
 
   return Array.from({ length: BALLOON_COUNT }, (_, index) => {
@@ -71,18 +67,12 @@ export function createBalloons(width, height) {
       knotColor: shade(color, 0.22),
       // Jitter around the column, then keep the balloon mostly on screen.
       x: Math.min(Math.max(column + random(-columnWidth, columnWidth) - size / 2, -size * 0.25), width - size * 0.75),
-      // Squaring the roll front-loads the burst: a rush first, stragglers after.
-      delay: Math.random() ** 1.7 * STAGGER_MS,
-      duration: lerp(SLOW_RISE_MS, FAST_RISE_MS, depth) * random(0.9, 1.1),
-      // Side-to-side drift, in points, and how many full sways on the way up.
+      cycleMs: lerp(SLOW_CYCLE_MS, FAST_CYCLE_MS, depth) * random(0.9, 1.1),
+      offset: Math.random(),
+      // Side-to-side drift, in points, and how many full sways per crossing.
       sway: random(12, 34) * lerp(0.6, 1, depth),
       swayCycles: random(1.1, 2.3),
-      phase: Math.random(),
-      // Solid. Depth already reads from size and speed, and anything less than
-      // opaque lets the profile text show straight through a balloon.
-      opacity: 1,
-      // Height of the screen is needed to know where "below the fold" is.
-      travel: height,
+      swayPhase: Math.random(),
     };
   });
 }
