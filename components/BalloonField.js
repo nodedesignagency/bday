@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { balloonAt, createBalloons } from '../constants/balloons';
+import { FILL } from '../constants/fill';
 import Balloon from './Balloon';
 
 // How long a popped balloon stays gone before a fresh one rises in its place.
@@ -228,5 +229,5 @@ export default function BalloonField() {
 }
 
 const styles = StyleSheet.create({
-  field: StyleSheet.absoluteFillObject,
+  field: FILL,
 });

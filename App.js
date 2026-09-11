@@ -4,6 +4,7 @@ import { Image, StyleSheet, View } from 'react-native';
 
 import BalloonField from './components/BalloonField';
 import BACKGROUND from './constants/background';
+import { FILL } from './constants/fill';
 import { LAUNCH_DELAY_MS } from './constants/balloons';
 
 export default function App() {
@@ -32,7 +33,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   background: {
-    ...StyleSheet.absoluteFillObject,
+    ...FILL,
     // Explicit dimensions as well: the image's own intrinsic size otherwise
     // wins and the screenshot renders zoomed instead of fitted.
     width: '100%',
