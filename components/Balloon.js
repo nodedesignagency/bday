@@ -36,6 +36,8 @@ export default function Balloon({
   const stringHeight = size * 1.45;
   const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
+  // Every value this depends on is rolled once by the field and stays put, so
+  // this runs at mount and is never restarted mid-rise.
   useEffect(() => {
     const rise = Animated.timing(progress, {
       toValue: 1,
@@ -43,7 +45,10 @@ export default function Balloon({
       duration,
       // Slow release, floaty cruise, no hard stop at the top.
       easing: Easing.bezier(0.38, 0, 0.62, 1),
-      useNativeDriver: true,
+      // Driven from JS on purpose. The native driver hands the animation to a
+      // view the platform owns, and a rise that stalls halfway up is the price
+      // when that goes wrong. Eighteen balloons is nothing to drive by hand.
+      useNativeDriver: false,
     });
 
     rise.start();

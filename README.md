@@ -44,8 +44,8 @@ Everything lives at the top of `constants/balloons.js`:
 | Balloon colors | `COLORS` |
 | Size, speed and stagger | `MIN_SIZE` / `MAX_SIZE`, `SLOW_RISE_MS` / `FAST_RISE_MS`, `STAGGER_MS` |
 
-Each balloon gets a random depth: small ones rise slowly and sit back, big ones
-come in fast and bright, and everything sways on its own sine wave.
+Each balloon gets a random depth: small ones drift up slowly, big ones come in
+fast and close, and every one sways on its own sine wave.
 
 ## Files
 

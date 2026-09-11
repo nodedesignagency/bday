@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { createBalloons } from '../constants/balloons';
@@ -14,7 +14,14 @@ import Balloon from './Balloon';
  */
 export default function BalloonField() {
   const { width, height } = useWindowDimensions();
-  const balloons = useMemo(() => createBalloons(width, height), [width, height]);
+
+  // Rolled once, at mount, and never again. useMemo would be wrong twice over:
+  // React is free to discard a memo and recompute it, and the window dimensions
+  // it would key on genuinely change on iOS as the hidden status bar settles.
+  // Either way every balloon draws a fresh random delay and its rise restarts
+  // from wherever it had got to, which reads as balloons stuck near the bottom.
+  // Replays get fresh balloons because the whole field remounts on a new key.
+  const [balloons] = useState(() => createBalloons(width, height));
 
   return (
     // Taps belong to the screen underneath, so a tap anywhere replays the burst.
