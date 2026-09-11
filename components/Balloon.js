@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
@@ -10,8 +9,13 @@ const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
 
 const MAX_TILT_DEG = 8;
 
+// A balloon is taller than it is wide. The body is laid out as a circle and
+// stretched, because a scaled circle is a true ellipse on every platform,
+// where a tall box with a big corner radius is only ever a pill.
+const STRETCH = 1.18;
+
 export default function Balloon({
-  gradient,
+  color,
   knotColor,
   size,
   x,
@@ -25,10 +29,12 @@ export default function Balloon({
 }) {
   const progress = useRef(new Animated.Value(0)).current;
 
-  const bodyHeight = size * 1.18;
+  // Stretching happens around the middle, so the body spills this far past its
+  // layout box at the top and at the bottom.
+  const overhang = (size * STRETCH - size) / 2;
   const knotHeight = size * 0.11;
   const stringHeight = size * 1.45;
-  const totalHeight = bodyHeight + knotHeight + stringHeight;
+  const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
   useEffect(() => {
     const rise = Animated.timing(progress, {
@@ -65,16 +71,11 @@ export default function Balloon({
 
   const translateY = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [travel + size, -totalHeight - 24],
+    outputRange: [travel + overhang, -totalHeight],
   });
 
   const translateX = progress.interpolate({ inputRange, outputRange: swayRange });
   const rotate = progress.interpolate({ inputRange, outputRange: tiltRange });
-
-  const fadeIn = progress.interpolate({
-    inputRange: [0, 0.04, 1],
-    outputRange: [0, opacity, opacity],
-  });
 
   return (
     <Animated.View
@@ -83,42 +84,71 @@ export default function Balloon({
         {
           left: x,
           width: size,
-          opacity: fadeIn,
+          // Fixed rather than animated: a balloon that fails to move is still a
+          // balloon you can see, instead of an invisible bug.
+          opacity,
           transform: [{ translateY }, { translateX }, { rotate }],
         },
       ]}
     >
-      <LinearGradient
-        colors={gradient}
-        locations={[0, 0.45, 1]}
-        start={{ x: 0.15, y: 0 }}
-        end={{ x: 0.88, y: 1 }}
-        style={[styles.body, { width: size, height: bodyHeight }]}
+      <View
+        style={[
+          styles.body,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: color,
+            transform: [{ scaleY: STRETCH }],
+          },
+        ]}
       >
-        {/* A soft streak and a pinpoint glint: the bit that sells "latex". */}
+        {/* An oversized dark disc cutting in from the right: its curved edge
+            shades the balloon like a round object, where a straight-edged
+            panel would just look like a stripe. */}
+        <View
+          style={[
+            styles.shade,
+            {
+              width: size * 1.25,
+              height: size * 1.25,
+              right: -size * 0.62,
+              top: -size * 0.1,
+              borderRadius: size * 0.625,
+            },
+          ]}
+        />
         <View
           style={[
             styles.highlight,
             {
-              width: size * 0.2,
-              height: bodyHeight * 0.32,
-              left: size * 0.16,
-              top: bodyHeight * 0.15,
+              width: size * 0.22,
+              height: size * 0.32,
+              left: size * 0.15,
+              top: size * 0.15,
+              borderRadius: size / 4,
             },
           ]}
         />
         <View
           style={[
             styles.glint,
-            { width: size * 0.09, height: size * 0.09, left: size * 0.35, top: bodyHeight * 0.11 },
+            {
+              width: size * 0.09,
+              height: size * 0.09,
+              left: size * 0.36,
+              top: size * 0.12,
+              borderRadius: size * 0.045,
+            },
           ]}
         />
-      </LinearGradient>
+      </View>
 
       <View
         style={[
           styles.knot,
           {
+            marginTop: overhang - 1,
             borderLeftWidth: size * 0.07,
             borderRightWidth: size * 0.07,
             borderTopWidth: knotHeight,
@@ -147,29 +177,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     alignItems: 'center',
-    // Swing from the balloon itself, the way a real one drags its string along.
-    transformOrigin: 'top center',
   },
   body: {
-    // A true ellipse, not a rounded rectangle.
-    borderRadius: '50%',
     overflow: 'hidden',
+  },
+  shade: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
   },
   highlight: {
     position: 'absolute',
-    borderRadius: '50%',
-    backgroundColor: 'rgba(255, 255, 255, 0.38)',
+    backgroundColor: 'rgba(255, 255, 255, 0.36)',
     transform: [{ rotate: '-16deg' }],
   },
   glint: {
     position: 'absolute',
-    borderRadius: '50%',
     backgroundColor: 'rgba(255, 255, 255, 0.75)',
   },
   knot: {
     width: 0,
     height: 0,
-    marginTop: -2,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },

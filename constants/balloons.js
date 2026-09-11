@@ -36,13 +36,12 @@ const hexToRgb = (hex) => [
   parseInt(hex.slice(5, 7), 16),
 ];
 
-// Blend a hex color toward white (tint) or black (shade).
+// Blend a hex color toward black, for the knot under each balloon.
 const blend = (hex, toward, amount) =>
   `rgb(${hexToRgb(hex)
     .map((channel) => Math.round(channel + (toward - channel) * amount))
     .join(', ')})`;
 
-const tint = (hex, amount) => blend(hex, 255, amount);
 const shade = (hex, amount) => blend(hex, 0, amount);
 
 const random = (min, max) => min + Math.random() * (max - min);
@@ -64,9 +63,8 @@ export function createBalloons(width, height) {
     return {
       id: `balloon-${index}`,
       size,
-      // Lit from the top left, falling away to a shaded bottom right.
-      gradient: [tint(color, 0.34), color, shade(color, 0.3)],
-      knotColor: shade(color, 0.18),
+      color,
+      knotColor: shade(color, 0.22),
       // Jitter around the column, then keep the balloon mostly on screen.
       x: Math.min(Math.max(column + random(-columnWidth, columnWidth) - size / 2, -size * 0.25), width - size * 0.75),
       // Squaring the roll front-loads the burst: a rush first, stragglers after.
@@ -76,8 +74,9 @@ export function createBalloons(width, height) {
       sway: random(12, 34) * lerp(0.6, 1, depth),
       swayCycles: random(1.1, 2.3),
       phase: Math.random(),
-      // Distant balloons sit back a little.
-      opacity: lerp(0.9, 1, depth),
+      // Solid. Depth already reads from size and speed, and anything less than
+      // opaque lets the profile text show straight through a balloon.
+      opacity: 1,
       // Height of the screen is needed to know where "below the fold" is.
       travel: height,
     };
