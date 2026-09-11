@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { BURST_MS, createBalloons } from '../constants/balloons';
 import Balloon from './Balloon';
 
+// ~60 ticks a second. Position comes from the wall clock, not from counting
+// ticks, so a slow tick costs smoothness and never progress.
+const TICK_MS = 16;
+
 /**
  * One burst of balloons. Mount it with a fresh `key` to run the burst again.
  *
- * The whole burst runs off this single clock, ticking 0 to 1 once. Each balloon
- * reads its own slice of it, so there is exactly one animation to go wrong
- * instead of eighteen, and nothing a re-render does can restart a rise midway.
+ * The burst is a plain number counting 0 to 1 on a timer, and every balloon is
+ * drawn from it. No Animated, no interpolation, no animation driver: those are
+ * the pieces that kept stalling the rise partway up on iOS, and a timer plus a
+ * re-render is the one path that is certain to work. Eighteen small views is
+ * well within what that can carry.
  *
  * Deliberately no `overflow: hidden`: balloons begin their rise below the
  * bottom of the screen, and clipping a layer on iOS can detach the children
@@ -18,38 +24,35 @@ import Balloon from './Balloon';
  */
 export default function BalloonField() {
   const { width, height } = useWindowDimensions();
-  const clock = useRef(new Animated.Value(0)).current;
+  const [progress, setProgress] = useState(0);
 
   // Rolled once, at mount. A replay gets fresh balloons because the whole field
   // remounts on a new key.
   const [balloons] = useState(() => createBalloons(width, height));
 
-  // Hand-wound rather than Animated.timing. This is the same loop timing would
-  // run underneath, minus the driver and scheduler that were stalling the rise
-  // partway up on iOS — and it reads the wall clock each frame, so a dropped
-  // frame costs smoothness rather than putting the burst behind.
   useEffect(() => {
     const startedAt = Date.now();
-    let frame;
 
-    const tick = () => {
+    const ticker = setInterval(() => {
       const elapsed = (Date.now() - startedAt) / BURST_MS;
-      clock.setValue(Math.min(elapsed, 1));
 
-      if (elapsed < 1) {
-        frame = requestAnimationFrame(tick);
+      if (elapsed >= 1) {
+        setProgress(1);
+        clearInterval(ticker);
+        return;
       }
-    };
 
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [clock]);
+      setProgress(elapsed);
+    }, TICK_MS);
+
+    return () => clearInterval(ticker);
+  }, []);
 
   return (
     // Taps belong to the screen underneath, so a tap anywhere replays the burst.
     <View style={styles.field} pointerEvents="none">
       {balloons.map((balloon) => (
-        <Balloon key={balloon.id} {...balloon} clock={clock} />
+        <Balloon key={balloon.id} {...balloon} progress={progress} />
       ))}
     </View>
   );

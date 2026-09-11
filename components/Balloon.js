@@ -1,13 +1,6 @@
-import { useMemo } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { BURST_MS } from '../constants/balloons';
-
-// Sample points along one balloon's flight. The rise easing, the sway and the
-// tilt are all baked into these, so the shared clock can tick straight through.
-const STEPS = 24;
-
-const RISE_EASING = Easing.bezier(0.38, 0, 0.62, 1);
 
 const MAX_TILT_DEG = 8;
 
@@ -20,9 +13,18 @@ const STRING_SEGMENTS = [0, 3, 4, 2, -2, -3, -2];
 const STRETCH = 1.18;
 
 const lerp = (from, to, t) => from + (to - from) * t;
+const clamp01 = (value) => (value < 0 ? 0 : value > 1 ? 1 : value);
 
+// Slow release, floaty cruise, no hard stop at the top.
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+/**
+ * A single balloon, drawn from the burst's progress. Plain arithmetic and a
+ * plain View: whatever the platform does with animation drivers, it can still
+ * put a box where the numbers say.
+ */
 export default function Balloon({
-  clock,
+  progress,
   color,
   knotColor,
   size,
@@ -41,49 +43,25 @@ export default function Balloon({
   const stringHeight = size * 1.45;
   const totalHeight = overhang + size + overhang + knotHeight + stringHeight;
 
-  const flight = useMemo(() => {
-    const startAt = delay / BURST_MS;
-    const endAt = Math.min((delay + duration) / BURST_MS, 1);
+  // This balloon's own slice of the burst: parked below the screen until its
+  // moment, gone above it afterwards.
+  const startAt = delay / BURST_MS;
+  const endAt = (delay + duration) / BURST_MS;
+  const t = clamp01((progress - startAt) / (endAt - startAt));
 
-    const from = travel + overhang;
-    const to = -totalHeight;
-
-    const clockRange = [];
-    const rise = [];
-    const drift = [];
-    const tilt = [];
-
-    for (let step = 0; step <= STEPS; step += 1) {
-      const t = step / STEPS;
-      const offset = Math.sin((phase + t * swayCycles) * Math.PI * 2) * sway;
-
-      clockRange.push(lerp(startAt, endAt, t));
-      rise.push(lerp(from, to, RISE_EASING(t)));
-      drift.push(offset);
-      // Lean into the drift, so the balloon swings rather than slides.
-      tilt.push(`${(offset / sway) * MAX_TILT_DEG}deg`);
-    }
-
-    return { clockRange, rise, drift, tilt };
-  }, [delay, duration, overhang, phase, sway, swayCycles, totalHeight, travel]);
-
-  // Clamped at both ends: parked below the screen until its moment, gone above
-  // it afterwards.
-  const interpolation = (outputRange) =>
-    clock.interpolate({ inputRange: flight.clockRange, outputRange, extrapolate: 'clamp' });
+  const translateY = lerp(travel + overhang, -totalHeight, ease(t));
+  const translateX = Math.sin((phase + t * swayCycles) * Math.PI * 2) * sway;
+  // Lean into the drift, so the balloon swings rather than slides.
+  const tilt = (translateX / sway) * MAX_TILT_DEG;
 
   return (
-    <Animated.View
+    <View
       style={[
         styles.balloon,
         {
           left: x,
           width: size,
-          transform: [
-            { translateY: interpolation(flight.rise) },
-            { translateX: interpolation(flight.drift) },
-            { rotate: interpolation(flight.tilt) },
-          ],
+          transform: [{ translateY }, { translateX }, { rotate: `${tilt}deg` }],
         },
       ]}
     >
@@ -164,7 +142,7 @@ export default function Balloon({
           />
         ))}
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
