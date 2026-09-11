@@ -1,61 +1,35 @@
-import { Pressable, StyleSheet, View } from 'react-native';
-
-const MAX_TILT_DEG = 8;
-
-// A balloon is taller than it is wide. The body is laid out as a circle and
-// stretched, because a scaled circle is a true ellipse on every platform,
-// where a tall box with a big corner radius is only ever a pill.
-const STRETCH = 1.18;
-
-const lerp = (from, to, t) => from + (to - from) * t;
+import { StyleSheet, View } from 'react-native';
 
 /**
- * A single balloon.
- *
- * Placed with `top` and `left` rather than moved with a transform. Touch
- * hit-testing on iOS does not reliably follow a transform, so a balloon drawn
- * near the bottom of the screen kept its tap target wherever it had been laid
- * out — which is why tapping one place popped a balloon somewhere else, and
- * why they seemed to pop themselves. Laying it out where it is drawn keeps the
- * two together.
- *
- * Kept deliberately plain and few-viewed: the field re-renders these on every
- * tick, and view count is what that costs on a phone.
+ * A single balloon. Purely something to look at: where it goes is decided by
+ * the field, which uses the same figures to decide what a tap landed on.
  */
-export default function Balloon({ phase, travel, balloon, onPop }) {
-  const { id, size, color, knotColor, x, sway, swayCycles, swayPhase } = balloon;
+export default function Balloon({ balloon, place, hidden }) {
+  const { size, color, knotColor } = balloon;
+  const { top, left, bodyHeight, tilt } = place;
 
-  const bodyHeight = size * STRETCH;
   const knotHeight = size * 0.11;
   const stringHeight = size * 1.45;
-  const totalHeight = bodyHeight + knotHeight + stringHeight;
-
-  const top = lerp(travel, -totalHeight, phase);
-  const drift = Math.sin((swayPhase + phase * swayCycles) * Math.PI * 2) * sway;
-  // Lean into the drift, so the balloon swings rather than slides.
-  const tilt = (drift / sway) * MAX_TILT_DEG;
 
   return (
     <View
       style={[
         styles.balloon,
-        { top, left: x + drift, width: size, transform: [{ rotate: `${tilt}deg` }] },
+        {
+          top,
+          left,
+          width: size,
+          // Popped balloons stay mounted and merely stop being visible. Taking
+          // them out of the tree is a way for one to vanish by accident.
+          opacity: hidden ? 0 : 1,
+          transform: [{ rotate: `${tilt}deg` }],
+        },
       ]}
     >
-      {/* Only the balloon is tappable; the string trailing below it is not. */}
-      <Pressable
-        onPress={() => onPop(id)}
-        // A balloon is a moving target, and a finger is not a pixel. Give the
-        // tap a little room around the edges.
-        hitSlop={12}
+      <View
         style={[
           styles.body,
-          {
-            width: size,
-            height: bodyHeight,
-            borderRadius: size / 2,
-            backgroundColor: color,
-          },
+          { width: size, height: bodyHeight, borderRadius: size / 2, backgroundColor: color },
         ]}
       >
         {/* An oversized dark disc cutting in from the right: its curved edge
@@ -85,7 +59,7 @@ export default function Balloon({ phase, travel, balloon, onPop }) {
             },
           ]}
         />
-      </Pressable>
+      </View>
 
       <View
         style={[
@@ -132,6 +106,5 @@ const styles = StyleSheet.create({
     width: 2,
     borderRadius: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.32)',
-    pointerEvents: 'none',
   },
 });

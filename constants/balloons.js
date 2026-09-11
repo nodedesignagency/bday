@@ -76,3 +76,32 @@ export function createBalloons(width) {
     };
   });
 }
+
+// A balloon is taller than it is wide. The body is laid out as a circle and
+// stretched, because a scaled circle is a true ellipse on every platform.
+export const STRETCH = 1.18;
+
+/**
+ * Where a balloon is, right now.
+ *
+ * The one place this is worked out. Drawing and tap detection both call it, so
+ * the balloon you can see and the balloon you can hit cannot drift apart.
+ */
+export function placeBalloon(balloon, now, travel) {
+  const { size, x, cycleMs, offset, sway, swayCycles, swayPhase } = balloon;
+
+  const cycles = now / cycleMs + offset;
+  const phase = cycles - Math.floor(cycles);
+
+  const bodyHeight = size * STRETCH;
+  const totalHeight = bodyHeight + size * 0.11 + size * 1.45;
+  const drift = Math.sin((swayPhase + phase * swayCycles) * Math.PI * 2) * sway;
+
+  return {
+    top: travel + (-totalHeight - travel) * phase,
+    left: x + drift,
+    bodyHeight,
+    // Lean into the drift, so the balloon swings rather than slides.
+    tilt: (drift / sway) * 8,
+  };
+}
