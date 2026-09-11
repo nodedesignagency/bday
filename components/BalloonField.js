@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, StyleSheet, View, useWindowDimensions } from 'react-native';
 
-import { createBalloons, placeBalloon } from '../constants/balloons';
+import { balloonAt, createBalloons } from '../constants/balloons';
 import Balloon from './Balloon';
-
-// 30 a second. Every tick re-renders the balloons, and a render is what costs
-// on a phone, so this buys back half of it for motion nobody can tell apart.
-const TICK_MS = 33;
 
 // How long a popped balloon stays gone before a fresh one rises in its place.
 const RESPAWN_MS = 1400;
 
 // A finger is not a pixel, and a balloon is a moving target.
-const TAP_SLOP = 14;
+const TAP_SLOP = 16;
 
 /**
  * Held outside React so a rebuilt tree gets the same balloons back rather than
@@ -20,18 +16,53 @@ const TAP_SLOP = 14;
  */
 let cached = null;
 
+// Balloons enter over this window rather than all at once. Their differing
+// speeds pull them apart from there.
+const STAGGER_MS = 5000;
+
+/**
+ * One lap up the screen, which starts the next when it lands.
+ *
+ * Deliberately not Animated.loop: that leaves every balloon parked above the
+ * top of the screen after a single lap. A plain timing does run, and the
+ * handful of lines of JavaScript between laps — once every few seconds per
+ * balloon — cost nothing. Everything in between is driven natively, with no
+ * JavaScript per frame and nothing re-rendering, which is what makes this
+ * light where redrawing from JavaScript was heavy.
+ */
+function startRise(rise, cycleMs) {
+  rise.value.setValue(0);
+  rise.startedAt = Date.now();
+
+  rise.lap = Animated.timing(rise.value, {
+    toValue: 1,
+    duration: cycleMs,
+    easing: Easing.linear,
+    useNativeDriver: true,
+  });
+
+  rise.lap.start(({ finished }) => {
+    if (finished && !rise.stopped) {
+      startRise(rise, cycleMs);
+    }
+  });
+}
+
 /**
  * The balloons, drifting up the screen for as long as the app is open.
  *
- * There is one touch handler, on the field, and it works out what was hit from
- * the very same figures that placed the balloons on screen. Giving each balloon
- * its own tappable view is what made them appear to pop themselves: a tap would
- * land on a balloon nowhere near the finger, and every balloon it reached
- * disappeared a moment after coming into view.
+ * Each rise is declared once and runs natively, so no JavaScript executes
+ * between frames and nothing re-renders while they move. That is what makes it
+ * light: the previous versions redrew every balloon from JavaScript sixty
+ * times a second, which a browser shrugs off and a phone does not.
+ *
+ * Taps are worked out here, from the same figures that place the balloons,
+ * rather than by giving each balloon its own tappable view. Those views move
+ * every frame, and anything that reached one popped it — which is why balloons
+ * appeared to pop themselves and never got far off the bottom.
  */
 export default function BalloonField() {
   const { width, height } = useWindowDimensions();
-  const [now, setNow] = useState(() => Date.now());
 
   const [balloons] = useState(() => {
     if (!cached) {
@@ -41,28 +72,58 @@ export default function BalloonField() {
     return cached;
   });
 
-  // id -> when it was popped. A balloon is hidden while that is recent, which
-  // means the clock alone decides, and a lost timer cannot strand one.
-  const [poppedAt, setPoppedAt] = useState(() => ({}));
-  const nowRef = useRef(now);
+  // Per-balloon: the value the native side drives, plus enough to work out
+  // where it is right now without asking the native side anything.
+  const rises = useRef(
+    balloons.map((balloon) => ({
+      value: new Animated.Value(0),
+      // Restamped at the top of every lap, so a tap can work out where the
+      // balloon is without asking the native side anything.
+      startedAt: Date.now() + balloon.offset * STAGGER_MS,
+      delayMs: balloon.offset * STAGGER_MS,
+    })),
+  ).current;
+
+  const [popped, setPopped] = useState(() => ({}));
 
   useEffect(() => {
-    const ticker = setInterval(() => {
-      const stamp = Date.now();
-      nowRef.current = stamp;
-      setNow(stamp);
-    }, TICK_MS);
+    const timers = rises.map((rise, index) => {
+      rise.stopped = false;
+      return setTimeout(() => startRise(rise, balloons[index].cycleMs), rise.delayMs);
+    });
 
-    return () => clearInterval(ticker);
-  }, []);
+    return () => {
+      timers.forEach(clearTimeout);
+      rises.forEach((rise) => {
+        rise.stopped = true;
+        if (rise.lap) {
+          rise.lap.stop();
+        }
+      });
+    };
+  }, [balloons, rises]);
+
+  const phaseOf = useCallback(
+    (index, at) => {
+      const rise = rises[index];
+      const elapsed = at - rise.startedAt;
+
+      if (elapsed <= 0) {
+        return 0;
+      }
+
+      return Math.min(elapsed / balloons[index].cycleMs, 1);
+    },
+    [balloons, rises],
+  );
 
   const handleTap = useCallback(
     (touchX, touchY) => {
-      const stamp = nowRef.current;
+      const at = Date.now();
 
       const hit = balloons
-        .filter((balloon) => stamp - (poppedAt[balloon.id] || 0) >= RESPAWN_MS)
-        .map((balloon) => ({ balloon, place: placeBalloon(balloon, stamp, height) }))
+        .map((balloon, index) => ({ balloon, index, place: balloonAt(balloon, phaseOf(index, at), height) }))
+        .filter(({ balloon }) => !popped[balloon.id])
         .filter(
           ({ balloon, place }) =>
             touchX >= place.left - TAP_SLOP &&
@@ -77,15 +138,22 @@ export default function BalloonField() {
         return;
       }
 
-      setPoppedAt((current) => ({ ...current, [hit.balloon.id]: stamp }));
+      setPopped((current) => ({ ...current, [hit.balloon.id]: true }));
 
       setTimeout(() => {
         // Send the replacement up from the bottom rather than dropping it back
-        // in wherever its old cycle had wandered to.
-        hit.balloon.offset = -Date.now() / hit.balloon.cycleMs;
+        // in wherever its rise had got to.
+        const rise = rises[hit.index];
+        rise.value.stopAnimation(() => startRise(rise, hit.balloon.cycleMs));
+
+        setPopped((current) => {
+          const next = { ...current };
+          delete next[hit.balloon.id];
+          return next;
+        });
       }, RESPAWN_MS);
     },
-    [balloons, height, poppedAt],
+    [balloons, height, phaseOf, popped, rises],
   );
 
   return (
@@ -96,12 +164,13 @@ export default function BalloonField() {
         handleTap(event.nativeEvent.locationX, event.nativeEvent.locationY)
       }
     >
-      {balloons.map((balloon) => (
+      {balloons.map((balloon, index) => (
         <Balloon
           key={balloon.id}
           balloon={balloon}
-          place={placeBalloon(balloon, now, height)}
-          hidden={now - (poppedAt[balloon.id] || 0) < RESPAWN_MS}
+          phase={rises[index].value}
+          travel={height}
+          hidden={Boolean(popped[balloon.id])}
         />
       ))}
     </View>

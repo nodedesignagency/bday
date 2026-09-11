@@ -6,7 +6,7 @@
 export const LAUNCH_DELAY_MS = 1000;
 
 // How many balloons are in the air.
-export const BALLOON_COUNT = 12;
+export const BALLOON_COUNT = 16;
 
 // Balloon width in points. Small balloons read as "far away", big ones as "close".
 const MIN_SIZE = 34;
@@ -81,26 +81,27 @@ export function createBalloons(width) {
 // stretched, because a scaled circle is a true ellipse on every platform.
 export const STRETCH = 1.18;
 
+/** The full drawn height of a balloon, body through to the end of its string. */
+export function balloonHeight(size) {
+  return size * STRETCH + size * 0.11 + size * 1.45;
+}
+
 /**
- * Where a balloon is, right now.
- *
- * The one place this is worked out. Drawing and tap detection both call it, so
- * the balloon you can see and the balloon you can hit cannot drift apart.
+ * Where a balloon sits at a given point in its rise, 0 (below the screen) to
+ * 1 (above the top). The one place this is worked out: the animation reads it
+ * to draw, and the tap handler reads it to decide what a finger landed on, so
+ * what you can see and what you can hit cannot drift apart.
  */
-export function placeBalloon(balloon, now, travel) {
-  const { size, x, cycleMs, offset, sway, swayCycles, swayPhase } = balloon;
+export function balloonAt(balloon, phase, travel) {
+  const { size, x, sway, swayCycles, swayPhase } = balloon;
 
-  const cycles = now / cycleMs + offset;
-  const phase = cycles - Math.floor(cycles);
-
-  const bodyHeight = size * STRETCH;
-  const totalHeight = bodyHeight + size * 0.11 + size * 1.45;
   const drift = Math.sin((swayPhase + phase * swayCycles) * Math.PI * 2) * sway;
 
   return {
-    top: travel + (-totalHeight - travel) * phase,
+    top: travel + (-balloonHeight(size) - travel) * phase,
     left: x + drift,
-    bodyHeight,
+    drift,
+    bodyHeight: size * STRETCH,
     // Lean into the drift, so the balloon swings rather than slides.
     tilt: (drift / sway) * 8,
   };

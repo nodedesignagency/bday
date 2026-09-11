@@ -1,28 +1,63 @@
-import { StyleSheet, View } from 'react-native';
+import { memo, useMemo } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
+
+import { STRETCH, balloonAt } from '../constants/balloons';
+
+// Sample points along one rise. The sway and tilt are curves, so they are
+// handed to the interpolation as a table rather than computed per frame.
+const STEPS = 20;
 
 /**
- * A single balloon. Purely something to look at: where it goes is decided by
- * the field, which uses the same figures to decide what a tap landed on.
+ * A single balloon.
+ *
+ * `phase` is an Animated.Value looping 0 to 1 on the UI thread, so the balloon
+ * moves without JavaScript running at all — no render per frame, nothing for
+ * the app to keep up with. It re-renders only when it is popped.
  */
-export default function Balloon({ balloon, place, hidden }) {
+function Balloon({ balloon, phase, travel, hidden }) {
   const { size, color, knotColor } = balloon;
-  const { top, left, bodyHeight, tilt } = place;
 
+  const bodyHeight = size * STRETCH;
   const knotHeight = size * 0.11;
   const stringHeight = size * 1.45;
 
+  const curve = useMemo(() => {
+    const at = [];
+    const drift = [];
+    const tilt = [];
+
+    for (let step = 0; step <= STEPS; step += 1) {
+      const t = step / STEPS;
+      const place = balloonAt(balloon, t, travel);
+
+      at.push(t);
+      drift.push(place.drift);
+      tilt.push(`${place.tilt}deg`);
+    }
+
+    return { at, drift, tilt };
+  }, [balloon, travel]);
+
+  const translateY = phase.interpolate({
+    inputRange: [0, 1],
+    outputRange: [balloonAt(balloon, 0, travel).top, balloonAt(balloon, 1, travel).top],
+  });
+
   return (
-    <View
+    <Animated.View
       style={[
         styles.balloon,
         {
-          top,
-          left,
+          left: balloon.x,
           width: size,
           // Popped balloons stay mounted and merely stop being visible. Taking
-          // them out of the tree is a way for one to vanish by accident.
+          // one out of the tree is a way for it to vanish by accident.
           opacity: hidden ? 0 : 1,
-          transform: [{ rotate: `${tilt}deg` }],
+          transform: [
+            { translateY },
+            { translateX: phase.interpolate({ inputRange: curve.at, outputRange: curve.drift }) },
+            { rotate: phase.interpolate({ inputRange: curve.at, outputRange: curve.tilt }) },
+          ],
         },
       ]}
     >
@@ -74,13 +109,16 @@ export default function Balloon({ balloon, place, hidden }) {
       />
 
       <View style={[styles.string, { height: stringHeight }]} />
-    </View>
+    </Animated.View>
   );
 }
+
+export default memo(Balloon);
 
 const styles = StyleSheet.create({
   balloon: {
     position: 'absolute',
+    top: 0,
     alignItems: 'center',
   },
   body: {
