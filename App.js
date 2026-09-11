@@ -6,20 +6,41 @@ import BalloonField from './components/BalloonField';
 import BACKGROUND from './constants/background';
 import { LAUNCH_DELAY_MS } from './constants/balloons';
 
+// If the image load never reports back, launch anyway rather than sit there empty.
+const SAFETY_NET_MS = 2500;
+
 export default function App() {
+  // The screenshot has to be on screen before the countdown starts, otherwise
+  // the balloons launch behind Expo Go's loading screen and you miss the start.
+  const [onScreen, setOnScreen] = useState(false);
+
   // null = nothing in the air yet. The number keys the burst, so bumping it replays.
   const [burst, setBurst] = useState(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setBurst(0), LAUNCH_DELAY_MS);
-    return () => clearTimeout(timer);
+    const safetyNet = setTimeout(() => setOnScreen(true), SAFETY_NET_MS);
+    return () => clearTimeout(safetyNet);
   }, []);
+
+  useEffect(() => {
+    if (!onScreen) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => setBurst((current) => current ?? 0), LAUNCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [onScreen]);
 
   const replay = useCallback(() => setBurst((current) => (current === null ? 0 : current + 1)), []);
 
   return (
     <Pressable style={styles.screen} onPress={replay}>
-      <ImageBackground source={BACKGROUND} style={styles.background} resizeMode="cover">
+      <ImageBackground
+        source={BACKGROUND}
+        style={styles.background}
+        resizeMode="cover"
+        onLoadEnd={() => setOnScreen(true)}
+      >
         {burst !== null && <BalloonField key={burst} />}
       </ImageBackground>
       {/* The background screenshot has its own status bar in it; hide the real one. */}
