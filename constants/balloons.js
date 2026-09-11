@@ -6,7 +6,7 @@
 export const LAUNCH_DELAY_MS = 1000;
 
 // How many balloons are in the air.
-export const BALLOON_COUNT = 18;
+export const BALLOON_COUNT = 12;
 
 // Balloon width in points. Small balloons read as "far away", big ones as "close".
 const MIN_SIZE = 34;

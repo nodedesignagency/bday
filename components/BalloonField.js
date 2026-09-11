@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { createBalloons } from '../constants/balloons';
 import Balloon from './Balloon';
 
-// How long a popped balloon stays gone before a new one drifts up in its place.
-const RESPAWN_MS = 1600;
+// 30 a second. Every tick re-renders the balloons, and a render is the thing
+// that costs on a phone, so this buys back half of it for motion nobody can
+// tell apart from 60.
+const TICK_MS = 33;
 
-const TICK_MS = 16;
+// How long a popped balloon stays gone before a fresh one rises in its place.
+const RESPAWN_MS = 1400;
 
 /**
  * Held outside React so a rebuilt tree gets the same balloons back rather than
@@ -18,24 +21,13 @@ let cached = null;
 /**
  * The balloons, drifting up the screen for as long as the app is open.
  *
- * The tick winds each balloon's phase straight to its Animated value, which
- * pushes the new position at the view without re-rendering anything. That is
- * the whole trick: a React render per frame is cheap in a browser and costs a
- * fresh view tree on a phone, which is what kept the rise crawling.
- *
- * Phase is worked out from the time of day, so nothing accumulates and there
- * is no progress for a rebuild to lose.
- *
- * Deliberately no `overflow: hidden`: balloons begin below the bottom of the
- * screen, and clipping a layer on iOS can detach the children sitting outside
- * it. The screen edge does the clipping for free.
+ * Each tick republishes the time and every balloon works out where it belongs
+ * from that alone — nothing accumulates, so there is no progress for a rebuild
+ * to lose and nothing that can end up stalled halfway.
  */
 export default function BalloonField() {
-  const { width, height: windowHeight } = useWindowDimensions();
-
-  // Measured rather than assumed, so the balloons always leave from the real
-  // bottom edge of what is on screen.
-  const [travel, setTravel] = useState(windowHeight);
+  const { width, height } = useWindowDimensions();
+  const [now, setNow] = useState(() => Date.now());
 
   const [balloons] = useState(() => {
     if (!cached) {
@@ -45,33 +37,17 @@ export default function BalloonField() {
     return cached;
   });
 
-  // One value per balloon: 0 at the bottom edge, 1 above the top.
-  const phases = useRef(balloons.map(() => new Animated.Value(0))).current;
-
   // Popped balloons, by id. Changes only when one is tapped.
   const [popped, setPopped] = useState(() => new Set());
 
   useEffect(() => {
-    const ticker = setInterval(() => {
-      const now = Date.now();
-
-      for (let index = 0; index < balloons.length; index += 1) {
-        const { cycleMs, offset } = balloons[index];
-        const cycles = now / cycleMs + offset;
-        phases[index].setValue(cycles - Math.floor(cycles));
-      }
-    }, TICK_MS);
-
+    const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(ticker);
-  }, [balloons, phases]);
+  }, []);
 
   const pop = useCallback(
     (id) => {
       setPopped((current) => {
-        if (current.has(id)) {
-          return current;
-        }
-
         const next = new Set(current);
         next.add(id);
         return next;
@@ -97,21 +73,24 @@ export default function BalloonField() {
   );
 
   return (
-    <View
-      style={styles.field}
-      onLayout={(event) => setTravel(event.nativeEvent.layout.height)}
-    >
-      {balloons.map((balloon, index) =>
-        popped.has(balloon.id) ? null : (
+    <View style={styles.field}>
+      {balloons.map((balloon) => {
+        if (popped.has(balloon.id)) {
+          return null;
+        }
+
+        const cycles = now / balloon.cycleMs + balloon.offset;
+
+        return (
           <Balloon
             key={balloon.id}
             balloon={balloon}
-            phase={phases[index]}
-            travel={travel}
+            phase={cycles - Math.floor(cycles)}
+            travel={height}
             onPop={pop}
           />
-        ),
-      )}
+        );
+      })}
     </View>
   );
 }
